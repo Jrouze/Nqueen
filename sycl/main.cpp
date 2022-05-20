@@ -6,7 +6,6 @@
 using namespace std;
 using namespace cl::sycl;
 
-#define _QUEENS_BLOCK_SIZE_   64
 #define _EMPTY_      -1
 
 #define sycl_read access::mode::read
@@ -153,8 +152,9 @@ unsigned long long BP_queens_prefixes(int size, int initialDepth,
 
 
 void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot *root_prefixes_h ,
-             unsigned long long *vector_of_tree_size_h, unsigned long long *sols_h, const int repeat, int device){
-  int num_blocks = ceil((double)n_explorers/_QUEENS_BLOCK_SIZE_);
+             unsigned long long *vector_of_tree_size_h, unsigned long long *sols_h,
+             const int Queens_Block_Size, const int repeat, int device){
+  int num_blocks = ceil((double)n_explorers/Queens_Block_Size);
 
   gpu_selector dev_sel_gpu;
   cpu_selector dev_sel_cpu;
@@ -170,8 +170,8 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     buffer<QueenRoot, 1> root_prefixes_d (root_prefixes_h, n_explorers);
 
     printf("\n### Regular BP-DFS search. ###\n");
-    range<1> gws (num_blocks * _QUEENS_BLOCK_SIZE_);
-    range<1> lws (_QUEENS_BLOCK_SIZE_);
+    range<1> gws (num_blocks * Queens_Block_Size);
+    range<1> lws (Queens_Block_Size);
 
     for (int i = 0; i < repeat; i++)
       q.submit([&] (handler &cgh) {
@@ -199,12 +199,12 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     buffer<unsigned long long, 1> sols_H (sols_h+gpupart, cpupart);
     buffer<QueenRoot, 1> root_prefixes_H (root_prefixes_h+gpupart, cpupart);
     printf("\n### Regular BP-DFS search. ###\n");
-    //range<1> gws_D (4*num_blocks/5 * _QUEENS_BLOCK_SIZE_);
-    //range<1> gws_H (num_blocks/5 * _QUEENS_BLOCK_SIZE_);
-    range<1> gws_D (ceil((double)gpupart/_QUEENS_BLOCK_SIZE_) * _QUEENS_BLOCK_SIZE_);
-    range<1> gws_H (ceil((double)cpupart/_QUEENS_BLOCK_SIZE_) * _QUEENS_BLOCK_SIZE_);
+    //range<1> gws_D (4*num_blocks/5 * Queens_Block_Size);
+    //range<1> gws_H (num_blocks/5 * Queens_Block_Size);
+    range<1> gws_D (ceil((double)gpupart/Queens_Block_Size) * Queens_Block_Size);
+    range<1> gws_H (ceil((double)cpupart/Queens_Block_Size) * Queens_Block_Size);
 
-    range<1> lws (_QUEENS_BLOCK_SIZE_);
+    range<1> lws (Queens_Block_Size);
 
     for (int i = 0; i < repeat; i++){
       Qd.submit([&] (handler &cgh) {
@@ -232,12 +232,30 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
 }
 
 
-int main(int argc, char *argv[])
-{
-  const short size = atoi(argv[1]);  // 15 - 17 for a short run
-  const int initialDepth = atoi(argv[2]); // 6 or 7
-  const int repeat = atoi(argv[3]); // kernel execution times
-  const int device = atoi(argv[4]); // should be 0 for gpu, 1 for cpu, 2 for both
+int main(int argc, char *argv[]){
+  short size=15;
+  int initialDepth=7;
+  int Queens_Block_Size=128;
+  int repeat=1;
+  int device=2;
+  if (argc==6){
+    size = atoi(argv[1]);  // 15 - 17 for a short run
+    initialDepth = atoi(argv[2]); // 6 or 7
+    Queens_Block_Size = atoi(argv[3]); // Block size (local size of nd_range)
+    repeat = atoi(argv[4]); // kernel execution times
+    device = atoi(argv[5]); // should be 0 for gpu, 1 for cpu, 2 for both
+  }
+  else {
+    cout<<"Wrong number of arguments\nPlease give the following order of arguments\n\n"<<
+    "Argument\t\t Information\t\t\t Default values\n"<<
+    "Size of the problem\t 15 - 17 for a short run\t\t"<< size <<"\n"
+    "InitialDepth\t\t 6 or 7\t\t\t\t\t"<< initialDepth <<"\n"
+    "Blocksize\t\t Should be lower than 256\t\t"<< Queens_Block_Size <<"\n"
+    "Number of repetition\t 1 for short \t\t\t\t"<< repeat <<"\n"
+    "Device choice\t\t 0 for gpu, 1 for cpu, 2 for both \t"<< device <<"\n";
+
+    cout<<"\nUsing default values instead\n";
+  }
   printf("\n### Initial depth: %d - Size: %d:", initialDepth, size);
 
   unsigned long long tree_size = 0ULL;
@@ -260,7 +278,8 @@ int main(int argc, char *argv[])
   unsigned long long n_explorers = BP_queens_prefixes(size, initialDepth, &tree_size, root_prefixes_h);
 
   //calling the gpu-based search
-  nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h, solutions_h, repeat, device);
+  nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h,
+     solutions_h, Queens_Block_Size, repeat, device);
 
   printf("\nTree size: %llu", tree_size );
 
