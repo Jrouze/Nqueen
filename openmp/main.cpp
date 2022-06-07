@@ -202,37 +202,50 @@ unsigned long long BP_queens_prefixes(int size, int initialDepth,
 
 
 void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot *root_prefixes_h ,
-             unsigned long long *vector_of_tree_size_h, unsigned long long *sols_h, const int Queens_Block_Size, const int repeat)
+             unsigned long long *vector_of_tree_size_h, unsigned long long *sols_h, const int Queens_Block_Size,
+             const int repeat, const int device)
 {
   printf("\n### Regular BP-DFS search. ###\n");
-  int cpupart = n_explorers/5;
-  //cpupart-=cpupart%16;
-  int gpupart = n_explorers-cpupart;
+  int cpupart,gpupart;
+  if (device<=1){ // 0 if for GPU only, 1 is for CPU only
+    cpupart=device*n_explorers;
+    gpupart=(1-device)*n_explorers;
+  }
+  else{
+    cpupart = n_explorers/5;
+    gpupart = n_explorers-cpupart;
+  }
 
+  if(device==0){
 #pragma omp target data map (to: root_prefixes_h[0:gpupart]) \
                         map (from: vector_of_tree_size_h[0:gpupart], \
                                    sols_h[0:gpupart])
   {
     for (int i = 0; i < repeat; i++)
-      BP_queens_root_dfs(size,
-                         gpupart,
-                         initial_depth,
-                         root_prefixes_h,
-                         vector_of_tree_size_h,
-                         sols_h,
-                         Queens_Block_Size,
-                         0);
+      BP_queens_root_dfs(size, gpupart, initial_depth, root_prefixes_h, vector_of_tree_size_h,
+                         sols_h, Queens_Block_Size, 0);
   }
+}
+  else if(device==1)
     {
       for (int i = 0; i < repeat; i++)
-        BP_queens_root_dfs(size,
-                           cpupart,
-                           initial_depth,
-                           root_prefixes_h,
-                           vector_of_tree_size_h,
-                           sols_h,
-                           Queens_Block_Size,
-                           1,gpupart);
+        BP_queens_root_dfs(size, cpupart, initial_depth, root_prefixes_h, vector_of_tree_size_h,
+                           sols_h, Queens_Block_Size, 1);
+    }
+  else{
+#pragma omp target data map (to: root_prefixes_h[0:gpupart]) \
+                          map (from: vector_of_tree_size_h[0:gpupart], \
+                                     sols_h[0:gpupart])
+    {
+      for (int i = 0; i < repeat; i++)
+      BP_queens_root_dfs(size, gpupart, initial_depth, root_prefixes_h, vector_of_tree_size_h,
+                         sols_h, Queens_Block_Size, 0);
+    }
+      {
+        for (int i = 0; i < repeat; i++)
+        BP_queens_root_dfs(size, cpupart, initial_depth, root_prefixes_h, vector_of_tree_size_h,
+                           sols_h, Queens_Block_Size, 1, gpupart);
+      }
     }
 }
 
@@ -283,7 +296,7 @@ int main(int argc, char *argv[]){
   unsigned long long n_explorers = BP_queens_prefixes(size, initialDepth, &tree_size, root_prefixes_h);
 
   //calling the gpu-based search
-  nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h, solutions_h, Queens_Block_Size, repeat);
+  nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h, solutions_h, Queens_Block_Size, repeat, device);
 
   printf("\nTree size: %llu", tree_size );
 
