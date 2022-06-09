@@ -60,7 +60,7 @@ bool queens_stillLegal(const char *board, const int r)
 void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
   const QueenRoot *__restrict root_prefixes,  unsigned long long *__restrict vector_of_tree_size,
   unsigned long long *__restrict sols, const int Queens_Block_Size, const int device, int decal=0) {
-  if (device ==0)
+  if (device ==0) // ------------ If work done on GPU ------------
   #pragma omp target teams distribute parallel for thread_limit(Queens_Block_Size)
   for (int idx = 0; idx < nPreFixos; idx++) {
      unsigned int flag = 0;
@@ -105,10 +105,10 @@ void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
 
     sols[idx] = qtd_solutions_thread;
     vector_of_tree_size[idx] = tree_size;
-  }//if
-  if (device ==1)
+  }//endif
+  if (device ==1) // ------------ If work done on CPU ------------
   #pragma omp parallel for
-  for (int idx = 0; idx < nPreFixos; idx++) {
+  for (int idx = decal; idx < decal+nPreFixos; idx++) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
      char vertice[20];
@@ -123,11 +123,11 @@ void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
       vertice[i] = _EMPTY_;
     }
 
-    flag = root_prefixes[idx+decal].control;
+    flag = root_prefixes[idx].control;
 
 #pragma unroll 2
     for (i = 0; i < depthGlobal; ++i)
-      vertice[i] = root_prefixes[idx+decal].board[i];
+      vertice[i] = root_prefixes[idx].board[i];
 
     depth = depthGlobal;
 
@@ -149,10 +149,10 @@ void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
       flag &= ~(1ULL<<vertice[depth]);
     } while(depth >= depthGlobal);
 
-    sols[idx+decal] = qtd_solutions_thread;
-    vector_of_tree_size[idx+decal] = tree_size;
-  }//if
-}//kernel
+    sols[idx] = qtd_solutions_thread;
+    vector_of_tree_size[idx] = tree_size;
+  }//endif
+}//end kernel
 
 unsigned long long BP_queens_prefixes(int size, int initialDepth,
                                       unsigned long long *tree_size,
@@ -212,11 +212,11 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     gpupart=(1-device)*n_explorers;
   }
   else{
-    cpupart = n_explorers/5;
+    cpupart = n_explorers/2;
     gpupart = n_explorers-cpupart;
   }
 
-  if(device==0){
+  if(device==0){ // ------------ If work done on GPU ------------
 #pragma omp target data map (to: root_prefixes_h[0:gpupart]) \
                         map (from: vector_of_tree_size_h[0:gpupart], \
                                    sols_h[0:gpupart])
@@ -226,13 +226,13 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
                          sols_h, Queens_Block_Size, 0);
   }
 }
-  else if(device==1)
+  else if(device==1) // ------------ If work done on CPU ------------
     {
       for (int i = 0; i < repeat; i++)
         BP_queens_root_dfs(size, cpupart, initial_depth, root_prefixes_h, vector_of_tree_size_h,
                            sols_h, Queens_Block_Size, 1);
     }
-  else{
+  else{ // ------------ If work done on both ------------
 #pragma omp target data map (to: root_prefixes_h[0:gpupart]) \
                           map (from: vector_of_tree_size_h[0:gpupart], \
                                      sols_h[0:gpupart])
@@ -249,7 +249,9 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     }
 }
 
-
+// -----------------------------------------------------------------------------
+//                  Main function
+// -----------------------------------------------------------------------------
 int main(int argc, char *argv[]){
   short size=15;
   int initialDepth=7;
