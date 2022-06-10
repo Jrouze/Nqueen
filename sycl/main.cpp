@@ -1,3 +1,8 @@
+// -----------------------------------------------------------------------------
+//    Nqueens problem |  OneAPI version using nd_range and buffers
+// -----------------------------------------------------------------------------
+
+
 #include <stdio.h>
 #include <stdlib.h>
 //#include "common.h"
