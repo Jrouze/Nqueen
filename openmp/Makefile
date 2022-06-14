@@ -57,5 +57,8 @@ $(program): $(obj)
 clean:
 	rm -rf $(program) $(obj)
 
+txtclean:
+	rm *.txt
+
 run: $(program)
 	./$(program)

@@ -376,13 +376,16 @@ int main(int argc, char *argv[]){
     return 1;
   }
 
+  struct timespec start, stop;
+  double elapsed;
+// --------- Beginning of the search -----------
+  clock_gettime(CLOCK_MONOTONIC,&start);
+
   //initial search, getting the tree root nodes for the gpu;
   unsigned long long n_explorers = BP_queens_prefixes(size, initialDepth, &tree_size, root_prefixes_h);
 
   //calling the gpu-based search
   nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h, solutions_h, Queens_Block_Size, repeat, device);
-
-  printf("\nTree size: %llu", tree_size );
 
   for(unsigned long long i = 0; i<n_explorers;++i){
     if(solutions_h[i]>0)
@@ -391,6 +394,10 @@ int main(int argc, char *argv[]){
       tree_size +=vector_of_tree_size_h[i];
   }
 
+  clock_gettime(CLOCK_MONOTONIC,&stop);
+  elapsed=(stop.tv_sec-start.tv_sec)+(stop.tv_nsec-start.tv_nsec)/1e9;
+// --------- Searching process is done -----------
+  printf("\nTree size: %llu", tree_size );
   printf("\nNumber of solutions found: %llu \nTree size: %llu\n", qtd_sols_global, tree_size );
 
   // Initial depth: 7 - Size: 15:
@@ -403,6 +410,17 @@ int main(int argc, char *argv[]){
     else
       printf("FAIL\n");
   }
+
+// --------- Storing time mesurement -----------
+  printf("\nElapsed time :\t %2.10f\n", elapsed);
+  FILE *f;
+  if (device==0) {
+    f=fopen("data_omp_gpu.txt","a");}
+  else if (device==1){
+    f=fopen("data_omp_cpu.txt","a");}
+  else{
+    f=fopen("data_omp_both.txt","a");}
+  fprintf(f,"%d %d %d %f \n", size, initialDepth, Queens_Block_Size, elapsed/repeat);
 
   free(root_prefixes_h);
   free(vector_of_tree_size_h);
