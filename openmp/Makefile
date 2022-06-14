@@ -62,3 +62,7 @@ txtclean:
 
 run: $(program)
 	./$(program)
+
+bench:
+	for i in 14 15 16 17; do for j in 0 1 2; do ./main $i 7 128 1 $j; done; done
+	
