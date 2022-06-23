@@ -20,14 +20,14 @@ typedef struct queen_root{
 } QueenRoot;
 
 inline void prefixesHandleSol(QueenRoot *root_prefixes, unsigned int flag,
-                              const char *board, int initialDepth, int num_sol)
+                              const int *board, int initialDepth, int num_sol)
 {
   root_prefixes[num_sol].control = flag;
   for(int i = 0; i<initialDepth;++i)
     root_prefixes[num_sol].board[i] = board[i];
 }
 
-inline bool MCstillLegal(const char *board, const int r)
+inline bool MCstillLegal(const int *board, const int r)
 {
   // Check vertical
   for (int i = 0; i < r; ++i)
@@ -43,7 +43,7 @@ inline bool MCstillLegal(const char *board, const int r)
 }
 
 #pragma omp declare target
-bool queens_stillLegal(const char *board, const int r)
+bool queens_stillLegal(const int *board, const int r)
 {
   bool safe = true;
   // Check vertical
@@ -69,7 +69,7 @@ void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
   for (int idx = 0; idx < nPreFixos; idx++) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
-     char vertice[20];
+     int vertice[20];
      int N_l = N;
      int i, depth;
      unsigned long long  qtd_solutions_thread = 0ULL;
@@ -115,7 +115,7 @@ void BP_queens_root_dfs(int N, unsigned int nPreFixos, int depthPreFixos,
   for (int idx = 0; idx < nPreFixos; idx++) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
-     char vertice[20];
+     int vertice[20];
      int N_l = N;
      int i, depth;
      unsigned long long  qtd_solutions_thread = 0ULL;
@@ -166,7 +166,7 @@ void BP_queens_root_dfs_both(int N, unsigned int gpupart, int depthPreFixos,
   for (int idx = 0; idx < gpupart; idx++) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
-     char vertice[20];
+     int vertice[20];
      int N_l = N;
      int i, depth;
      unsigned long long  qtd_solutions_thread = 0ULL;
@@ -206,7 +206,7 @@ void BP_queens_root_dfs_both(int N, unsigned int gpupart, int depthPreFixos,
   for (int idx = cpupart; idx < cpupart+gpupart; idx++) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
-     char vertice[20];
+     int vertice[20];
      int N_l = N;
      int i, depth;
      unsigned long long  qtd_solutions_thread = 0ULL;
@@ -251,7 +251,7 @@ unsigned long long BP_queens_prefixes(int size, int initialDepth,
 {
   unsigned int flag = 0;
   int bit_test = 0;
-  char vertice[20];
+  int vertice[20];
   int i, nivel;
   unsigned long long local_tree = 0ULL;
   unsigned long long num_sol = 0;
