@@ -1,5 +1,6 @@
 // -----------------------------------------------------------------------------
 //    Nqueens problem |  OneAPI version using nd_range and buffers
+//  range on CPU  /!\ No time mesurement here /!\
 // -----------------------------------------------------------------------------
 
 
@@ -24,13 +25,13 @@ typedef struct queen_root{
 
 
 inline void prefixesHandleSol(QueenRoot *root_prefixes, unsigned int flag,
-                              const char *board, int initialDepth, int num_sol){
+                              const int *board, int initialDepth, int num_sol){
   root_prefixes[num_sol].control = flag;
   for(int i = 0; i<initialDepth;++i)
     root_prefixes[num_sol].board[i] = board[i];
 }
 
-inline bool MCstillLegal(const char *board, const int r){
+inline bool MCstillLegal(const int *board, const int r){
   // Check vertical
   for (int i = 0; i < r; ++i)
     if (board[i] == board[r]) return false;
@@ -44,7 +45,7 @@ inline bool MCstillLegal(const char *board, const int r){
   return true;
 }
 
-bool queens_stillLegal(const char *board, const int r){
+bool queens_stillLegal(const int *board, const int r){
   bool safe = true;
   // Check vertical
   for (int i = 0; i < r; ++i)
@@ -67,7 +68,58 @@ void BP_queens_root_dfs(nd_item<1> &item, int N, unsigned int nPreFixos, int dep
   if (idx < nPreFixos) {
      unsigned int flag = 0;
      unsigned int bit_test = 0;
-     char vertice[20];
+     int vertice[20];
+     int N_l = N;
+     int i, depth;
+     unsigned long long  qtd_solutions_thread = 0ULL;
+     int depthGlobal = depthPreFixos;
+     unsigned long long tree_size = 0ULL;
+
+#pragma unroll 2
+    for (i = 0; i < N_l; ++i) {
+      vertice[i] = _EMPTY_;
+    }
+
+    flag = root_prefixes[idx].control;
+
+#pragma unroll 2
+    for (i = 0; i < depthGlobal; ++i)
+      vertice[i] = root_prefixes[idx].board[i];
+
+    depth = depthGlobal;
+
+    do {
+      vertice[depth]++;
+      bit_test = 0;
+      bit_test |= (1<<vertice[depth]);
+      if(vertice[depth] == N_l){
+        vertice[depth] = _EMPTY_;
+      } else if (!(flag & bit_test ) && queens_stillLegal(vertice, depth)){
+        ++tree_size;
+        flag |= (1ULL<<vertice[depth]);
+        depth++;
+        if (depth == N_l) { //sol
+          ++qtd_solutions_thread;
+        } else continue;
+      } else continue;
+      depth--;
+      flag &= ~(1ULL<<vertice[depth]);
+    } while(depth >= depthGlobal);
+
+    sols[idx] = qtd_solutions_thread;
+    vector_of_tree_size[idx] = tree_size;
+  }//endif
+}//kernel
+
+
+void BP_queens_root_dfs_cpu(item<1> &item, int N, unsigned int nPreFixos, int depthPreFixos,
+  const QueenRoot *__restrict root_prefixes, unsigned long long *__restrict vector_of_tree_size,
+  unsigned long long *__restrict sols) {
+  int idx = item[0];
+  if (idx < nPreFixos) {
+     unsigned int flag = 0;
+     unsigned int bit_test = 0;
+     int vertice[20];
      int N_l = N;
      int i, depth;
      unsigned long long  qtd_solutions_thread = 0ULL;
@@ -115,7 +167,7 @@ unsigned long long BP_queens_prefixes(int size, int initialDepth,
                                       QueenRoot *root_prefixes){
   unsigned int flag = 0;
   int bit_test = 0;
-  char vertice[20];
+  int vertice[20];
   int i, nivel;
   unsigned long long local_tree = 0ULL;
   unsigned long long num_sol = 0;
@@ -173,18 +225,18 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     range<1> gws (ceil((double)n_explorers/Queens_Block_Size) * Queens_Block_Size);
     range<1> lws (Queens_Block_Size);
 
-    for (int i = 0; i < repeat; i++)
-      Qd.submit([&] (handler &cgh) {
+      for (int i = 0; i < repeat; i++)
+        Qd.submit([&] (handler &cgh) {
         auto root_prefixes = root_prefixes_d.get_access<sycl_read>(cgh);
         auto vector_of_tree_size = vector_of_tree_size_d.get_access<sycl_discard_write>(cgh);
         auto sols =  sols_d.get_access<sycl_discard_write>(cgh);
         cgh.parallel_for(nd_range<1>(gws, lws), [=] (nd_item<1> item) {
-          BP_queens_root_dfs(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
-                             vector_of_tree_size.get_pointer(), sols.get_pointer());
-       });
-     });
-     Qd.wait_and_throw();
-   }
+        BP_queens_root_dfs(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
+                          vector_of_tree_size.get_pointer(), sols.get_pointer());
+        });
+      });
+    Qd.wait_and_throw();
+  }
   else if (device==1){ // ------------ If work done on CPU ------------
     cpu_selector dev_sel_cpu;
     queue Qh(dev_sel_cpu);
@@ -196,16 +248,14 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
 
     printf("\n### Regular BP-DFS search. ###\n");
     range<1> gws (n_explorers);
-    range<1> lws (1);
-
-    for (int i = 0; i < repeat; i++)
-      Qh.submit([&] (handler &cgh) {
-        auto root_prefixes = root_prefixes_d.get_access<sycl_read>(cgh);
-        auto vector_of_tree_size = vector_of_tree_size_d.get_access<sycl_discard_write>(cgh);
-        auto sols =  sols_d.get_access<sycl_discard_write>(cgh);
-        cgh.parallel_for(nd_range<1>(gws, lws), [=] (nd_item<1> item) {
-          BP_queens_root_dfs(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
-                             vector_of_tree_size.get_pointer(), sols.get_pointer());
+      for (int i = 0; i < repeat; i++)
+        q.submit([&] (handler &cgh) {
+          auto root_prefixes = root_prefixes_d.get_access<sycl_read>(cgh);
+          auto vector_of_tree_size = vector_of_tree_size_d.get_access<sycl_discard_write>(cgh);
+          auto sols =  sols_d.get_access<sycl_discard_write>(cgh);
+          cgh.parallel_for(gws, [=] (item<1> item) {
+            BP_queens_root_dfs_cpu(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
+                               vector_of_tree_size.get_pointer(), sols.get_pointer());
        });
      });
     Qh.wait_and_throw();
@@ -218,6 +268,7 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     cout << "\nRunning on : "<< Qd.get_device().get_info<info::device::name>() << "\n";
     cout << "Running on : "<< Qh.get_device().get_info<info::device::name>() << "\n";
     int cpupart = n_explorers/2;
+    //cpupart-=cpupart%16;
     int gpupart = n_explorers-cpupart;
 
     buffer<unsigned long long, 1> vector_of_tree_size_D (vector_of_tree_size_h, gpupart);
@@ -228,19 +279,18 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
     buffer<unsigned long long, 1> sols_H (sols_h+gpupart, cpupart);
     buffer<QueenRoot, 1> root_prefixes_H (root_prefixes_h+gpupart, cpupart);
     printf("\n### Regular BP-DFS search. ###\n");
-
+    //range<1> gws_D (4*num_blocks/5 * Queens_Block_Size);
+    //range<1> gws_H (num_blocks/5 * Queens_Block_Size);
     range<1> gws_D (ceil((double)gpupart/Queens_Block_Size) * Queens_Block_Size);
-    range<1> gws_H (cpupart);
 
-    range<1> lws_D (Queens_Block_Size);
-    range<1> lws_H (1);
+    range<1> lws (Queens_Block_Size);
 
     for (int i = 0; i < repeat; i++){
       Qd.submit([&] (handler &cgh) {
         auto root_prefixes = root_prefixes_D.get_access<sycl_read>(cgh);
         auto vector_of_tree_size = vector_of_tree_size_D.get_access<sycl_discard_write>(cgh);
         auto sols =  sols_D.get_access<sycl_discard_write>(cgh);
-        cgh.parallel_for(nd_range<1>(gws_D, lws_D), [=] (nd_item<1> item) {
+        cgh.parallel_for(nd_range<1>(gws_D, lws), [=] (nd_item<1> item) {
           BP_queens_root_dfs(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
                              vector_of_tree_size.get_pointer(), sols.get_pointer());
         });
@@ -249,8 +299,8 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
         auto root_prefixes = root_prefixes_H.get_access<sycl_read>(cgh);
         auto vector_of_tree_size = vector_of_tree_size_H.get_access<sycl_discard_write>(cgh);
         auto sols =  sols_H.get_access<sycl_discard_write>(cgh);
-        cgh.parallel_for(nd_range<1>(gws_H, lws_H), [=] (nd_item<1> item) {
-          BP_queens_root_dfs(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
+        cgh.parallel_for(range<1>(cpupart), [=] (item<1> item) {
+          BP_queens_root_dfs_cpu(item, size, n_explorers, initial_depth, root_prefixes.get_pointer(),
                              vector_of_tree_size.get_pointer(), sols.get_pointer());
         });
       });
@@ -260,9 +310,7 @@ void nqueens(short size, int initial_depth, unsigned int n_explorers, QueenRoot 
   }
 }
 
-// -----------------------------------------------------------------------------
-//                  Main function
-// -----------------------------------------------------------------------------
+
 int main(int argc, char *argv[]){
   short size=15;
   int initialDepth=7;
@@ -305,27 +353,14 @@ int main(int argc, char *argv[]){
     return 1;
   }
 
-//----------------------------------------------------------
-// Remove parasite time mesurement
-//----------------------------------------------------------
-  gpu_selector dev_sel_gpu;
-  cpu_selector dev_sel_cpu;
-  queue Qd(dev_sel_gpu);
-  queue Qh(dev_sel_cpu);
-  Qd.parallel_for(range(1),[=](id<1> i){}).wait_and_throw();
-  Qh.parallel_for(range(1),[=](id<1> i){}).wait_and_throw();
-
-  struct timespec start, stop;
-  double elapsed;
-// --------- Beginning of the search -----------
-  clock_gettime(CLOCK_MONOTONIC,&start);
-
   //initial search, getting the tree root nodes for the gpu;
   unsigned long long n_explorers = BP_queens_prefixes(size, initialDepth, &tree_size, root_prefixes_h);
 
   //calling the gpu-based search
   nqueens(size, initialDepth, n_explorers, root_prefixes_h, vector_of_tree_size_h,
      solutions_h, Queens_Block_Size, repeat, device);
+
+  printf("\nTree size: %llu", tree_size );
 
   for(unsigned long long i = 0; i<n_explorers;++i){
     if(solutions_h[i]>0)
@@ -334,10 +369,6 @@ int main(int argc, char *argv[]){
       tree_size +=vector_of_tree_size_h[i];
   }
 
-  clock_gettime(CLOCK_MONOTONIC,&stop);
-  elapsed=(stop.tv_sec-start.tv_sec)+(stop.tv_nsec-start.tv_nsec)/1e9;
-// --------- Searching process is done -----------
-  printf("\nTree size: %llu", tree_size );
   printf("\nNumber of solutions found: %llu \nTree size: %llu\n", qtd_sols_global, tree_size );
 
   // Initial depth: 7 - Size: 15:
@@ -350,17 +381,6 @@ int main(int argc, char *argv[]){
     else
       printf("FAIL\n");
   }
-// --------- Storing time mesurement -----------
-  printf("\nElapsed time :\t %2.10f\n", elapsed);
-  FILE *f;
-  if (device==0) {
-    f=fopen("data_sycl_gpu.txt","a");}
-  else if (device==1){
-    f=fopen("data_sycl_cpu.txt","a");}
-  else{
-    f=fopen("data_sycl_both.txt","a");}
-  fprintf(f,"%d %d %d %f \n", size, initialDepth, Queens_Block_Size, elapsed/repeat);
-
 
   free(root_prefixes_h);
   free(vector_of_tree_size_h);
