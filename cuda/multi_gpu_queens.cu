@@ -26,6 +26,7 @@ typedef struct queen_root{
 
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
    if (code != cudaSuccess)
@@ -158,6 +159,7 @@ unsigned long long int BP_queens_prefixes(int size, int initialDepth ,unsigned l
     unsigned long long int num_sol = 0;
    //register int custo = 0;
 
+
     /*initialization*/
     for (i = 0; i < size; ++i) { //
         board[i] = -1;
@@ -200,52 +202,112 @@ unsigned long long int BP_queens_prefixes(int size, int initialDepth ,unsigned l
 //CUDA memory manipulation and calling both searches
 
 void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_cache, unsigned int n_explorers, QueenRoot *root_prefixes_h ,
-	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int gpu_id){
+	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int nb_streams_per_dev)
+    {
+        int nb_devices = 1;
+        gpuErrchk( cudaGetDeviceCount(&nb_devices) );
+        printf("\n### Number of devices:\t %d\n",nb_devices);
 
-    cudaSetDevice(gpu_id);
+        //set cache config for each device (optional)
+        if(set_cache){
+            for(int i=0;i<nb_devices;i++){
+                printf("\n ### nSeeting up the cache ###\n");
+                gpuErrchk( cudaSetDevice(i) );
+                gpuErrchk( cudaFuncSetCacheConfig(BP_queens_root_dfs,cudaFuncCachePreferL1) );
+            }
+        }
 
-    if(set_cache){
-        printf("\n ### nSeeting up the cache ###\n");
-        cudaFuncSetCacheConfig(BP_queens_root_dfs,cudaFuncCachePreferL1);
-    }
+        //how many streams per device
+        int nb_streams = nb_devices*nb_streams_per_dev;
+
+        //explorers per stream
+        unsigned int *nb_explorers_per_stream = (unsigned int*)malloc(nb_streams*sizeof(unsigned int));
+        unsigned int *nb_explorers_prefix_sum = (unsigned int*)malloc(nb_streams*sizeof(unsigned int));
+
+        unsigned int q = n_explorers/nb_streams;
+        unsigned int r = n_explorers;
+        for(int i=0;i<nb_streams;i++){
+            nb_explorers_per_stream[i] = q;
+            r -= nb_explorers_per_stream[i];
+        }
+        for(unsigned i=0;i<r;i++){
+            nb_explorers_per_stream[i]++;
+        }
+
+        nb_explorers_prefix_sum[0]=0;
+        for(int i=1;i<nb_streams;i++){
+            nb_explorers_prefix_sum[i] = nb_explorers_prefix_sum[i-1] + nb_explorers_per_stream[i-1];
+        }
+
+        printf("prefix sum : \n");
+        for(int i=0;i<nb_streams;i++){
+            printf("%d ",nb_explorers_prefix_sum[i]);
+        }
+        printf("\n");
+
+        //start parallel exploration on multiple devices / streams
+        #pragma omp parallel for
+        for(int i=0; i<nb_streams;i++)
+        {
+            gpuErrchk( cudaSetDevice(i/nb_streams_per_dev) );
+
+            unsigned int n_explorers_local = nb_explorers_per_stream[i];
+            unsigned int first_prefix = nb_explorers_prefix_sum[i];
+
+            //one stream per thread
+            cudaStream_t stream;
+            gpuErrchk( cudaStreamCreate(&stream) );
+
+            unsigned long long int *vector_of_tree_size_d;
+            unsigned long long int *sols_d;
+            QueenRoot *root_prefixes_d;
+
+            gpuErrchk( cudaMalloc((void**) &vector_of_tree_size_d,n_explorers_local*sizeof(unsigned long long int)) );
+            gpuErrchk( cudaMalloc((void**) &sols_d,n_explorers_local*sizeof(unsigned long long int)) );
+            gpuErrchk( cudaMalloc((void**) &root_prefixes_d,n_explorers_local*sizeof(QueenRoot)) );
 
 
-    unsigned long long int *vector_of_tree_size_d;
-    unsigned long long int *sols_d;
-    QueenRoot *root_prefixes_d;
+            // printf("hello %d %d %d \n",i,nb_explorers_per_stream[i],first_prefix);
 
-    int num_blocks = ceil((double)n_explorers/block_size);
+            // gpuErrchk( cudaMemcpy(
+            //     root_prefixes_d,
+            //     root_prefixes_h+first_prefix,
+            //     nb_explorers_per_stream[i] * sizeof(QueenRoot),
+            //     cudaMemcpyHostToDevice
+            // ) );
+            gpuErrchk( cudaMemcpyAsync(
+                root_prefixes_d,
+                root_prefixes_h+first_prefix,
+                n_explorers_local * sizeof(QueenRoot),
+                cudaMemcpyHostToDevice,
+                stream
+            ) );
 
+            gpuErrchk( cudaPeekAtLastError() );
+            gpuErrchk( cudaDeviceSynchronize() );
 
-    cudaMalloc((void**) &vector_of_tree_size_d,n_explorers*sizeof(unsigned long long int));
-    cudaMalloc((void**) &sols_d,n_explorers*sizeof(unsigned long long int));
-    cudaMalloc((void**) &root_prefixes_d,n_explorers*sizeof(QueenRoot));
+            int num_blocks = ceil((double)n_explorers_local/block_size);
 
-    //I Think this is not possible in Chapel. It must be internal
-    cudaMemcpy(root_prefixes_d, root_prefixes_h, n_explorers * sizeof(QueenRoot), cudaMemcpyHostToDevice);
+            BP_queens_root_dfs<<< num_blocks,block_size, 0, stream>>> (size,n_explorers_local,initial_depth,root_prefixes_d, vector_of_tree_size_d,sols_d);
+            gpuErrchk( cudaPeekAtLastError() );
+            gpuErrchk( cudaDeviceSynchronize() );
 
-    printf("\n### Regular BP-DFS search. ###\n");
+            gpuErrchk( cudaMemcpyAsync(vector_of_tree_size_h+first_prefix,vector_of_tree_size_d,n_explorers_local*sizeof(unsigned long long int),cudaMemcpyDeviceToHost,stream) );
+            gpuErrchk( cudaMemcpyAsync(sols_h+first_prefix,sols_d,n_explorers_local*sizeof(unsigned long long int),cudaMemcpyDeviceToHost,stream) );
 
-    //kernel_start =  rtclock();
+            gpuErrchk( cudaPeekAtLastError() );
+            gpuErrchk( cudaDeviceSynchronize() );
 
-    BP_queens_root_dfs<<< num_blocks,block_size>>> (size,n_explorers,initial_depth,root_prefixes_d, vector_of_tree_size_d,sols_d);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+            gpuErrchk( cudaFree(vector_of_tree_size_d) );
+            gpuErrchk( cudaFree(sols_d) );
+            gpuErrchk( cudaFree(root_prefixes_d) );
+        }
 
-    //kernel_stop = rtclock();
-
-    cudaMemcpy(vector_of_tree_size_h,vector_of_tree_size_d,n_explorers*sizeof(unsigned long long int),cudaMemcpyDeviceToHost);
-    cudaMemcpy(sols_h,sols_d,n_explorers*sizeof(unsigned long long int),cudaMemcpyDeviceToHost);
-
-    cudaFree(vector_of_tree_size_d);
-    cudaFree(sols_d);
-    cudaFree(root_prefixes_d);
-
+    free(nb_explorers_per_stream);
+    free(nb_explorers_prefix_sum);
 }
 
-double call_queens(int size, int initialDepth, int block_size, int set_cache){
-
-
+double call_queens(int size, int initialDepth, int block_size, int set_cache, int nb_streams_per_dev){
     unsigned long long initial_tree_size = 0ULL;
     unsigned long long qtd_sols_global = 0ULL;
     unsigned long long gpu_tree_size = 0ULL;
@@ -265,7 +327,7 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache){
 
     //calling the gpu-based search
 
-    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h, solutions_h, 0);
+    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h, solutions_h, nb_streams_per_dev);
 
     printf("\nInitial tree size: %llu", initial_tree_size );
 
@@ -287,19 +349,26 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache){
 
 
 int main(int argc, char *argv[]){
-
     int initialDepth;
     int size;
     int block_size;
+    int streams_per_dev = 1;
+
+    if(argc!=4 && argc!=5){
+        printf("provide arguments : ./queens size initialDepth block_size [streams_per_dev, default=1]");
+        return -1;
+    }
+    if(argc==5)
+        streams_per_dev = atoi(argv[4]);
 
     block_size = atoi(argv[3]);
     initialDepth = atoi(argv[2]);
     size = atoi(argv[1]);
 
-    auto time=call_queens(size, initialDepth, block_size,0);
+    auto time=call_queens(size, initialDepth, block_size, 0, streams_per_dev);
 
     FILE *f;
-    f=fopen("data_single_cuda.txt","a");
+    f=fopen("data_multi_cuda.txt","a");
     fprintf(f, "%d %d %d %f \n", size, initialDepth, block_size, time );
 
     return 0;
