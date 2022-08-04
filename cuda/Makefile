@@ -31,4 +31,3 @@ gpurun: sycl_multi
 
 bench:
 	for i in 15 16 17 18; do ./main $$i 7 128; done
-	for i in 15 16 17 18; do ./main $$i 7 256; done
