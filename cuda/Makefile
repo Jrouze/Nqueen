@@ -1,6 +1,6 @@
 FLAG = -O2 -g -std=c++17
 GPUCOMP = /home/jrouze/llvm/build/bin/clang++
-GPUFLAG = -O3 -fsycl -fsycl-targets=nvptx64-nvidia-cuda
+GPUFLAG = -fsycl -fsycl-targets=nvptx64-nvidia-cuda
 GPURUN = LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib
 # LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/jrouze/llvm/build/lib
 # LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib/:/home/jrouze/intel/oneapi/compiler/2022.0.2/linux/compiler/lib/intel64_lin/
