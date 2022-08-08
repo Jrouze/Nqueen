@@ -342,7 +342,7 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache, in
 
     unsigned int nMaxPrefixos = 75580635;
 
-    printf("\n### Queens size: %d, Initial depth: %d, Block size: %d", initialDepth, size, block_size);
+    printf("\n### Queens size: %d, Initial depth: %d, Block size: %d", size, initialDepth, block_size);
     double initial_time = rtclock();
 
     QueenRoot* root_prefixes_h = (QueenRoot*)malloc(sizeof(QueenRoot)*nMaxPrefixos);

@@ -1,12 +1,18 @@
 FLAG = -O2 -g -std=c++17
 GPUCOMP = /home/jrouze/llvm/build/bin/clang++
 GPUFLAG = -fsycl -fsycl-targets=nvptx64-nvidia-cuda
-GPURUN = LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib
+GPURUN = LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib/:/home/jrouze/intel/oneapi/compiler/2022.0.2/linux/compiler/lib/intel64_lin/
+# LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib
 # LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/jrouze/llvm/build/lib
-# LD_LIBRARY_PATH=/home/jrouze/llvm/build/lib/:/home/jrouze/intel/oneapi/compiler/2022.0.2/linux/compiler/lib/intel64_lin/
+
 
 main: multi_gpu_queens.dp.cpp
 	$(GPUCOMP) $(FLAG) $(GPUFLAG) -fopenmp=libiomp5 -o $@ $<
+
+#  AMD compilation
+# /home/jrouze/llvm/build/bin/clang++ -O2 -g -std=c++17 -fsycl -fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend --offload-arch=gfx906 -fopenmp=libiomp5 -o main multi_gpu_queens.dp.cpp
+
+
 
 # sycl_multi: SyclGPUs.cpp
 # 	$(GPUCOMP) $(FLAG) $(GPUFLAG) -o $@ $<
