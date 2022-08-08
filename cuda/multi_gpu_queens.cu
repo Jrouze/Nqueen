@@ -202,10 +202,11 @@ unsigned long long int BP_queens_prefixes(int size, int initialDepth ,unsigned l
 //CUDA memory manipulation and calling both searches
 
 void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_cache, unsigned int n_explorers, QueenRoot *root_prefixes_h ,
-	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int nb_streams_per_dev)
+	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int nb_streams_per_dev,  int max_devices)
     {
         int nb_devices = 1;
         gpuErrchk( cudaGetDeviceCount(&nb_devices) );
+        nb_devices=min(nb_devices,max_devices);
         printf("\n### Number of devices:\t %d\n",nb_devices);
 
         //set cache config for each device (optional)
@@ -307,7 +308,7 @@ void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_
     free(nb_explorers_prefix_sum);
 }
 
-double call_queens(int size, int initialDepth, int block_size, int set_cache, int nb_streams_per_dev){
+double call_queens(int size, int initialDepth, int block_size, int set_cache, int nb_streams_per_dev, int max_devices){
     unsigned long long initial_tree_size = 0ULL;
     unsigned long long qtd_sols_global = 0ULL;
     unsigned long long gpu_tree_size = 0ULL;
@@ -327,7 +328,8 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache, in
 
     //calling the gpu-based search
 
-    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h, solutions_h, nb_streams_per_dev);
+    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h,
+                            solutions_h, nb_streams_per_dev , max_devices);
 
     printf("\nInitial tree size: %llu", initial_tree_size );
 
@@ -349,23 +351,25 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache, in
 
 
 int main(int argc, char *argv[]){
-    int initialDepth;
-    int size;
-    int block_size;
-    int streams_per_dev = 1;
+  int initialDepth;
+  int size;
+  int block_size;
+  int max_devices;
+  int streams_per_dev = 1;
 
-    if(argc!=4 && argc!=5){
-        printf("provide arguments : ./queens size initialDepth block_size [streams_per_dev, default=1]");
-        return -1;
-    }
-    if(argc==5)
-        streams_per_dev = atoi(argv[4]);
+  if(argc!=5 && argc!=6){
+      printf("provide arguments : ./queens size initialDepth block_size max_devices [streams_per_dev, default=1]");
+      return -1;
+  }
+  if(argc==6)
+      streams_per_dev = atoi(argv[5]);
 
-    block_size = atoi(argv[3]);
-    initialDepth = atoi(argv[2]);
-    size = atoi(argv[1]);
+  max_devices = atoi(argv[4]);
+  block_size = atoi(argv[3]);
+  initialDepth = atoi(argv[2]);
+  size = atoi(argv[1]);
 
-    auto time=call_queens(size, initialDepth, block_size, 0, streams_per_dev);
+    auto time=call_queens(size, initialDepth, block_size, 0, streams_per_dev, max_devices);
 
     FILE *f;
     f=fopen("data_multi_cuda.txt","a");

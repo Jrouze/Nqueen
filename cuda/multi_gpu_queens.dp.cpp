@@ -202,15 +202,13 @@ unsigned long long int BP_queens_prefixes(int size, int initialDepth ,unsigned l
 //CUDA memory manipulation and calling both searches
 
 void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_cache, unsigned int n_explorers, QueenRoot *root_prefixes_h ,
-	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int nb_streams_per_dev)
+	unsigned long long int *vector_of_tree_size_h, unsigned long long int *sols_h, int nb_streams_per_dev, int max_devices)
     {
         int nb_devices = 1;
-        /*
-        DPCT1003:1: Migrated API does not return error code. (*, 0) is inserted.
-        You may need to rewrite this code.
-        */
+
         gpuErrchk((nb_devices = dpct::dev_mgr::instance().device_count(), 0));
         nb_devices--;
+        nb_devices=std::min(nb_devices,max_devices);
         printf("\n### Number of devices:\t %d\n",nb_devices);
 
 
@@ -247,10 +245,7 @@ void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_
         #pragma omp parallel for
         for(int i=0; i<nb_streams;i++)
         {
-            /*
-            DPCT1003:4: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((
                 dpct::dev_mgr::instance().select_device(i / nb_streams_per_dev),
                 0));
@@ -261,76 +256,39 @@ void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_
 
             //one stream per thread
             sycl::queue *stream;
-            /*
-            DPCT1003:5: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((stream = dpct::get_current_device().create_queue(), 0));
 
             unsigned long long int *vector_of_tree_size_d;
             unsigned long long int *sols_d;
             QueenRoot *root_prefixes_d;
 
-            /*
-            DPCT1003:6: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
             gpuErrchk((vector_of_tree_size_d =
                            sycl::malloc_device<unsigned long long>(
                                n_explorers_local, dpct::get_default_queue()),
                        0));
-            /*
-            DPCT1003:7: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((sols_d = sycl::malloc_device<unsigned long long>(
                            n_explorers_local, dpct::get_default_queue()),
                        0));
-            /*
-            DPCT1003:8: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((root_prefixes_d = sycl::malloc_device<QueenRoot>(
                            n_explorers_local, dpct::get_default_queue()),
                        0));
 
-            // printf("hello %d %d %d \n",i,nb_explorers_per_stream[i],first_prefix);
-
-            // gpuErrchk( cudaMemcpy(
-            //     root_prefixes_d,
-            //     root_prefixes_h+first_prefix,
-            //     nb_explorers_per_stream[i] * sizeof(QueenRoot),
-            //     cudaMemcpyHostToDevice
-            // ) );
-            /*
-            DPCT1003:9: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
             gpuErrchk(
                 (stream->memcpy(root_prefixes_d, root_prefixes_h + first_prefix,
                                 n_explorers_local * sizeof(QueenRoot)),
                  0));
 
-            /*
-            DPCT1010:10: SYCL uses exceptions to report errors and does not use
-            the error codes. The call was replaced with 0. You need to rewrite
-            this code.
-            */
+
             gpuErrchk(0);
-            /*
-            DPCT1003:11: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((dpct::get_current_device().queues_wait_and_throw(), 0));
 
             int num_blocks = ceil((double)n_explorers_local/block_size);
 
-            /*
-            DPCT1049:12: The workgroup size passed to the SYCL kernel may exceed
-            the limit. To get the device limit, query
-            info::device::max_work_group_size. Adjust the workgroup size if
-            needed.
-            */
+
             stream->parallel_for(
                 sycl::nd_range<3>(sycl::range<3>(1, 1, num_blocks) *
                                       sycl::range<3>(1, 1, block_size),
@@ -340,64 +298,35 @@ void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_
                                          root_prefixes_d, vector_of_tree_size_d,
                                          sols_d, item_ct1);
                 });
-            /*
-            DPCT1010:13: SYCL uses exceptions to report errors and does not use
-            the error codes. The call was replaced with 0. You need to rewrite
-            this code.
-            */
+
             gpuErrchk(0);
-            /*
-            DPCT1003:14: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((dpct::get_current_device().queues_wait_and_throw(), 0));
 
-            /*
-            DPCT1003:15: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((stream->memcpy(vector_of_tree_size_h + first_prefix,
                                       vector_of_tree_size_d,
                                       n_explorers_local *
                                           sizeof(unsigned long long int)),
                        0));
-            /*
-            DPCT1003:16: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((stream->memcpy(sols_h + first_prefix, sols_d,
                                       n_explorers_local *
                                           sizeof(unsigned long long int)),
                        0));
 
-            /*
-            DPCT1010:17: SYCL uses exceptions to report errors and does not use
-            the error codes. The call was replaced with 0. You need to rewrite
-            this code.
-            */
+
             gpuErrchk(0);
-            /*
-            DPCT1003:18: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((dpct::get_current_device().queues_wait_and_throw(), 0));
 
-            /*
-            DPCT1003:19: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk(
                 (sycl::free(vector_of_tree_size_d, dpct::get_default_queue()),
                  0));
-            /*
-            DPCT1003:20: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((sycl::free(sols_d, dpct::get_default_queue()), 0));
-            /*
-            DPCT1003:21: Migrated API does not return error code. (*, 0) is
-            inserted. You may need to rewrite this code.
-            */
+
             gpuErrchk((sycl::free(root_prefixes_d, dpct::get_default_queue()), 0));
         }
 
@@ -405,7 +334,7 @@ void GPU_call_cuda_queens(int size, int initial_depth, int block_size, bool set_
     free(nb_explorers_prefix_sum);
 }
 
-double call_queens(int size, int initialDepth, int block_size, int set_cache, int nb_streams_per_dev){
+double call_queens(int size, int initialDepth, int block_size, int set_cache, int nb_streams_per_dev, int max_devices){
     unsigned long long initial_tree_size = 0ULL;
     unsigned long long qtd_sols_global = 0ULL;
     unsigned long long gpu_tree_size = 0ULL;
@@ -425,7 +354,8 @@ double call_queens(int size, int initialDepth, int block_size, int set_cache, in
 
     //calling the gpu-based search
 
-    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h, solutions_h, nb_streams_per_dev);
+    GPU_call_cuda_queens(size, initialDepth, block_size, (bool)set_cache,n_explorers, root_prefixes_h ,vector_of_tree_size_h,
+                            solutions_h, nb_streams_per_dev , max_devices);
 
     printf("\nInitial tree size: %llu", initial_tree_size );
 
@@ -450,20 +380,22 @@ int main(int argc, char *argv[]){
     int initialDepth;
     int size;
     int block_size;
+    int max_devices;
     int streams_per_dev = 1;
 
-    if(argc!=4 && argc!=5){
-        printf("provide arguments : ./queens size initialDepth block_size [streams_per_dev, default=1]");
+    if(argc!=5 && argc!=6){
+        printf("provide arguments : ./queens size initialDepth block_size max_devices [streams_per_dev, default=1]");
         return -1;
     }
-    if(argc==5)
-        streams_per_dev = atoi(argv[4]);
+    if(argc==6)
+        streams_per_dev = atoi(argv[5]);
 
+    max_devices = atoi(argv[4]);
     block_size = atoi(argv[3]);
     initialDepth = atoi(argv[2]);
     size = atoi(argv[1]);
 
-    auto time=call_queens(size, initialDepth, block_size, 0, streams_per_dev);
+    auto time=call_queens(size, initialDepth, block_size, 0, streams_per_dev, max_devices);
 
     FILE *f;
     f=fopen("data_multi_sycl.txt","a");
