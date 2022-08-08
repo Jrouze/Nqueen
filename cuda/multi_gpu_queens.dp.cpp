@@ -399,7 +399,7 @@ int main(int argc, char *argv[]){
 
     FILE *f;
     f=fopen("data_multi_sycl.txt","a");
-    fprintf(f, "%d %d %d %f \n", size, initialDepth, block_size, time );
+    fprintf(f, "%d %d %d %d %f \n", size, initialDepth, block_size, max_devices, time );
 
     return 0;
 }
